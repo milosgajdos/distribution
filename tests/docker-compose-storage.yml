@@ -1,6 +1,6 @@
 services:
   minio:
-    image: docker.io/minio/minio:RELEASE.2023-09-20T22-49-55Z
+    image: docker.io/minio/minio:RELEASE.2023-09-27T15-22-50Z
     command: server /data --console-address ":9001"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]

@@ -207,6 +207,15 @@ func TestStorageClass(t *testing.T) {
 		t.Skip(skipS3())
 	}
 
+	// NOTE(milosgajdos): we override the s3StorageClasses here
+	// due to minio's "limited" storage class support
+	// see here: https://min.io/docs/minio/linux/reference/minio-server/minio-server.html#minio-ec-storage-class
+	s3StorageClasses = []string{
+		noStorageClass,
+		s3.StorageClassStandard,
+		s3.StorageClassReducedRedundancy,
+	}
+
 	rootDir := t.TempDir()
 	contents := []byte("contents")
 	ctx := context.Background()
