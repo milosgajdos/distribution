@@ -6,7 +6,7 @@ draft: true
 
 This is a list of known implementations of the Distribution API spec.
 
-## [CNCF Distribution Registry](https://github.com/distribution/distribution)
+## [CNCF Distribution](https://github.com/distribution/distribution)
 
 CNCF distribution is the reference implementation of the distribution API
 specification. It aims to fully implement the entire specification.

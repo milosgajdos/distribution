@@ -1,10 +1,10 @@
 ---
 title: "Token Authentication Specification"
-description: "Specifies the Distribution Registry v2 authentication"
+description: "Specifies the Distribution v2 authentication"
 keywords: registry, on-prem, images, tags, repository, distribution, Bearer authentication, advanced
 ---
 
-# Distribution Registry v2 authentication via central service
+# Distribution v2 authentication via central service
 
 This document outlines the v2 Distribution registry authentication scheme:
 
@@ -19,17 +19,17 @@ This document outlines the v2 Distribution registry authentication scheme:
    client's authorized access.
 5. The client retries the original request with the Bearer token embedded in
    the request's Authorization header.
-6. The Registry authorizes the client by validating the Bearer token and the
+6. The Distribution authorizes the client by validating the Bearer token and the
    claim set embedded within it and begins the push/pull session as usual.
 
 ## Requirements
 
-- Registry clients which can understand and respond to token auth challenges
+- Distribution clients which can understand and respond to token auth challenges
   returned by the resource server.
 - An authorization server capable of managing access controls to their
   resources hosted by any given service (such as repositories in a Distribution
   Registry).
-- A Distribution Registry capable of trusting the authorization server to sign tokens
+- A Distribution capable of trusting the authorization server to sign tokens
   which clients can use for authorization and the ability to verify these
   tokens for single use or for use during a sufficiently short period of time.
 
@@ -44,8 +44,8 @@ clients and verify their authorization to image repositories.
 
 ## How to authenticate
 
-Registry V1 clients first contact the index to initiate a push or pull. Under
-the Registry V2 workflow, clients should contact the registry first. If the
+Distribution V1 clients first contact the index to initiate a push or pull. Under
+the Distribution V2 workflow, clients should contact the registry first. If the
 registry server requires authentication it will return a `401 Unauthorized`
 response with a `WWW-Authenticate` header detailing how to authenticate to this
 registry.

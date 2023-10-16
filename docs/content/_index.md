@@ -1,18 +1,18 @@
 ---
 description: High-level overview of the Registry
 keywords: registry, on-prem, images, tags, repository, distribution
-title: Distribution Registry
+title: Distribution
 ---
 
 ## What it is
 
-The Registry is a stateless, highly scalable server side application that stores
-and lets you distribute container images and other content. The Registry is open-source, under the
+The Distribution is a stateless, highly scalable server side application that stores
+and lets you distribute container images and other content. The Distribution is open-source, under the
 permissive [Apache license](https://en.wikipedia.org/wiki/Apache_License).
 
 ## Why use it
 
-You should use the Registry if you want to:
+You should use the Distribution if you want to:
 
  * tightly control where your images are being stored
  * fully own your images distribution pipeline

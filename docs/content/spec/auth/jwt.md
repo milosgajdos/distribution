@@ -1,13 +1,13 @@
 ---
 title: "Token Authentication Implementation"
-description: "Describe the reference implementation of the Distribution Registry v2 authentication schema"
+description: "Describe the reference implementation of the Distribution v2 authentication schema"
 keywords: registry, on-prem, images, tags, repository, distribution, JWT authentication, advanced
 ---
 
-# Distribution Registry v2 Bearer token specification
+# Distribution v2 Bearer token specification
 
 This specification covers the `distribution/distribution` implementation of the
-v2 Registry's authentication schema.  Specifically, it describes the JSON
+v2 authentication schema. Specifically, it describes the JSON
 Web Token schema that `distribution/distribution` has adopted to implement the
 client-opaque Bearer token issued by an authentication service and
 understood by the registry.

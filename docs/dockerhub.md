@@ -1,6 +1,6 @@
 # Distribution
 
-This repository provides container images for the Open Source Registry implementation for storing and distributing container artifacts in conformance with the
+This repository provides container images for the Open Source Distribution implementation for storing and distributing container artifacts in conformance with the
 [OCI Distribution Specification](https://github.com/opencontainers/distribution-spec).
 
 <img src="https://raw.githubusercontent.com/distribution/distribution/main/distribution-logo.svg" width="200px" />
