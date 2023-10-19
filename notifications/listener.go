@@ -80,10 +80,10 @@ func (rl *repositoryListener) Manifests(ctx context.Context, options ...distribu
 	}, nil
 }
 
-func (rl *repositoryListener) Blobs(ctx context.Context) distribution.BlobStore {
+func (rl *repositoryListener) Blobs(ctx context.Context) distribution.BlobService {
 	return &blobServiceListener{
-		BlobStore: rl.Repository.Blobs(ctx),
-		parent:    rl,
+		BlobService: rl.Repository.Blobs(ctx),
+		parent:      rl,
 	}
 }
 
@@ -127,14 +127,14 @@ func (msl *manifestServiceListener) Put(ctx context.Context, sm distribution.Man
 }
 
 type blobServiceListener struct {
-	distribution.BlobStore
+	distribution.BlobService
 	parent *repositoryListener
 }
 
-var _ distribution.BlobStore = &blobServiceListener{}
+var _ distribution.BlobService = &blobServiceListener{}
 
 func (bsl *blobServiceListener) Get(ctx context.Context, dgst digest.Digest) ([]byte, error) {
-	p, err := bsl.BlobStore.Get(ctx, dgst)
+	p, err := bsl.BlobService.Get(ctx, dgst)
 	if err == nil {
 		if desc, err := bsl.Stat(ctx, dgst); err != nil {
 			dcontext.GetLogger(ctx).Errorf("error resolving descriptor in ServeBlob listener: %v", err)
@@ -149,7 +149,7 @@ func (bsl *blobServiceListener) Get(ctx context.Context, dgst digest.Digest) ([]
 }
 
 func (bsl *blobServiceListener) Open(ctx context.Context, dgst digest.Digest) (io.ReadSeekCloser, error) {
-	rc, err := bsl.BlobStore.Open(ctx, dgst)
+	rc, err := bsl.BlobService.Open(ctx, dgst)
 	if err == nil {
 		if desc, err := bsl.Stat(ctx, dgst); err != nil {
 			dcontext.GetLogger(ctx).Errorf("error resolving descriptor in ServeBlob listener: %v", err)
@@ -163,23 +163,8 @@ func (bsl *blobServiceListener) Open(ctx context.Context, dgst digest.Digest) (i
 	return rc, err
 }
 
-func (bsl *blobServiceListener) ServeBlob(ctx context.Context, w http.ResponseWriter, r *http.Request, dgst digest.Digest) error {
-	err := bsl.BlobStore.ServeBlob(ctx, w, r, dgst)
-	if err == nil {
-		if desc, err := bsl.Stat(ctx, dgst); err != nil {
-			dcontext.GetLogger(ctx).Errorf("error resolving descriptor in ServeBlob listener: %v", err)
-		} else {
-			if err := bsl.parent.listener.BlobPulled(bsl.parent.Repository.Named(), desc); err != nil {
-				dcontext.GetLogger(ctx).Errorf("error dispatching layer pull to listener: %v", err)
-			}
-		}
-	}
-
-	return err
-}
-
 func (bsl *blobServiceListener) Put(ctx context.Context, mediaType string, p []byte) (distribution.Descriptor, error) {
-	desc, err := bsl.BlobStore.Put(ctx, mediaType, p)
+	desc, err := bsl.BlobService.Put(ctx, mediaType, p)
 	if err == nil {
 		if err := bsl.parent.listener.BlobPushed(bsl.parent.Repository.Named(), desc); err != nil {
 			dcontext.GetLogger(ctx).Errorf("error dispatching layer push to listener: %v", err)
@@ -190,7 +175,7 @@ func (bsl *blobServiceListener) Put(ctx context.Context, mediaType string, p []b
 }
 
 func (bsl *blobServiceListener) Create(ctx context.Context, options ...distribution.BlobCreateOption) (distribution.BlobWriter, error) {
-	wr, err := bsl.BlobStore.Create(ctx, options...)
+	wr, err := bsl.BlobService.Create(ctx, options...)
 	switch err := err.(type) {
 	case distribution.ErrBlobMounted:
 		if err := bsl.parent.listener.BlobMounted(bsl.parent.Repository.Named(), err.Descriptor, err.From); err != nil {
@@ -201,19 +186,8 @@ func (bsl *blobServiceListener) Create(ctx context.Context, options ...distribut
 	return bsl.decorateWriter(wr), err
 }
 
-func (bsl *blobServiceListener) Delete(ctx context.Context, dgst digest.Digest) error {
-	err := bsl.BlobStore.Delete(ctx, dgst)
-	if err == nil {
-		if err := bsl.parent.listener.BlobDeleted(bsl.parent.Repository.Named(), dgst); err != nil {
-			dcontext.GetLogger(ctx).Errorf("error dispatching layer delete to listener: %v", err)
-		}
-	}
-
-	return err
-}
-
 func (bsl *blobServiceListener) Resume(ctx context.Context, id string) (distribution.BlobWriter, error) {
-	wr, err := bsl.BlobStore.Resume(ctx, id)
+	wr, err := bsl.BlobService.Resume(ctx, id)
 	return bsl.decorateWriter(wr), err
 }
 
@@ -238,6 +212,37 @@ func (bwl *blobWriterListener) Commit(ctx context.Context, desc distribution.Des
 	}
 
 	return committed, err
+}
+
+type blobServerListener struct {
+	distribution.BlobStore
+	parent *repositoryListener
+}
+
+func (bsl *blobServerListener) ServeBlob(ctx context.Context, w http.ResponseWriter, r *http.Request, dgst digest.Digest) error {
+	err := bsl.BlobStore.ServeBlob(ctx, w, r, dgst)
+	if err == nil {
+		if desc, err := bsl.Stat(ctx, dgst); err != nil {
+			dcontext.GetLogger(ctx).Errorf("error resolving descriptor in ServeBlob listener: %v", err)
+		} else {
+			if err := bsl.parent.listener.BlobPulled(bsl.parent.Repository.Named(), desc); err != nil {
+				dcontext.GetLogger(ctx).Errorf("error dispatching layer pull to listener: %v", err)
+			}
+		}
+	}
+
+	return err
+}
+
+func (bsl *blobServerListener) Delete(ctx context.Context, dgst digest.Digest) error {
+	err := bsl.BlobStore.Delete(ctx, dgst)
+	if err == nil {
+		if err := bsl.parent.listener.BlobDeleted(bsl.parent.Repository.Named(), dgst); err != nil {
+			dcontext.GetLogger(ctx).Errorf("error dispatching layer delete to listener: %v", err)
+		}
+	}
+
+	return err
 }
 
 type tagServiceListener struct {

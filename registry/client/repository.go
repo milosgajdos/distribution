@@ -157,7 +157,7 @@ func (r *repository) Named() reference.Named {
 	return r.name
 }
 
-func (r *repository) Blobs(ctx context.Context) distribution.BlobStore {
+func (r *repository) Blobs(ctx context.Context) distribution.BlobService {
 	return &blobs{
 		name:   r.name,
 		ub:     r.ub,

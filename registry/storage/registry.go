@@ -263,7 +263,7 @@ func (repo *repository) Manifests(ctx context.Context, options ...distribution.M
 // Blobs returns an instance of the BlobStore. Instantiation is cheap and
 // may be context sensitive in the future. The instance should be used similar
 // to a request local.
-func (repo *repository) Blobs(ctx context.Context) distribution.BlobStore {
+func (repo *repository) Blobs(ctx context.Context) distribution.BlobService {
 	var statter distribution.BlobDescriptorService = &linkedBlobStatter{
 		blobStore:  repo.blobStore,
 		repository: repo,

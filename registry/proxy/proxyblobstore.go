@@ -17,7 +17,7 @@ import (
 )
 
 type proxyBlobStore struct {
-	localStore     distribution.BlobStore
+	localStore     distribution.BlobService
 	remoteStore    distribution.BlobService
 	scheduler      *scheduler.TTLExpirationScheduler
 	ttl            *time.Duration

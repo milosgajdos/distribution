@@ -103,11 +103,7 @@ type Repository interface {
 	Manifests(ctx context.Context, options ...ManifestServiceOption) (ManifestService, error)
 
 	// Blobs returns a reference to this repository's blob service.
-	Blobs(ctx context.Context) BlobStore
-
-	// TODO(stevvooe): The above BlobStore return can probably be relaxed to
-	// be a BlobService for use with clients. This will allow such
-	// implementations to avoid implementing ServeBlob.
+	Blobs(ctx context.Context) BlobService
 
 	// Tags returns a reference to this repositories tag service
 	Tags(ctx context.Context) TagService

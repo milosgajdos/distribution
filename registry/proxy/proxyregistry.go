@@ -272,7 +272,7 @@ func (pr *proxiedRepository) Manifests(ctx context.Context, options ...distribut
 	return pr.manifests, nil
 }
 
-func (pr *proxiedRepository) Blobs(ctx context.Context) distribution.BlobStore {
+func (pr *proxiedRepository) Blobs(ctx context.Context) distribution.BlobService {
 	return pr.blobStore
 }
 
