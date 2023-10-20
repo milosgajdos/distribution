@@ -348,7 +348,7 @@ func (app *App) RegisterHealthChecks(healthRegistries ...*health.Registry) {
 			interval = defaultCheckInterval
 		}
 
-		storageDriverCheck := func() error {
+		storageDriverCheck := func(ctx context.Context) error {
 			_, err := app.driver.Stat(app, "/") // "/" should always exist
 			if _, ok := err.(storagedriver.PathNotFoundError); ok {
 				err = nil // pass this through, backend is responding, but this path doesn't exist.
@@ -372,7 +372,7 @@ func (app *App) RegisterHealthChecks(healthRegistries ...*health.Registry) {
 			interval = defaultCheckInterval
 		}
 		dcontext.GetLogger(app).Infof("configuring file health check path=%s, interval=%d", fileChecker.File, interval/time.Second)
-		healthRegistry.Register(fileChecker.File, health.PeriodicChecker(checks.FileChecker(fileChecker.File), interval))
+		healthRegistry.Register(fileChecker.File, health.PeriodicChecker(context.Background(), checks.FileChecker(fileChecker.File), interval))
 	}
 
 	for _, httpChecker := range app.Config.Health.HTTPCheckers {
@@ -390,10 +390,10 @@ func (app *App) RegisterHealthChecks(healthRegistries ...*health.Registry) {
 
 		if httpChecker.Threshold != 0 {
 			dcontext.GetLogger(app).Infof("configuring HTTP health check uri=%s, interval=%d, threshold=%d", httpChecker.URI, interval/time.Second, httpChecker.Threshold)
-			healthRegistry.Register(httpChecker.URI, health.PeriodicThresholdChecker(checker, interval, httpChecker.Threshold))
+			healthRegistry.Register(httpChecker.URI, health.PeriodicThresholdChecker(context.Background(), checker, interval, httpChecker.Threshold))
 		} else {
 			dcontext.GetLogger(app).Infof("configuring HTTP health check uri=%s, interval=%d", httpChecker.URI, interval/time.Second)
-			healthRegistry.Register(httpChecker.URI, health.PeriodicChecker(checker, interval))
+			healthRegistry.Register(httpChecker.URI, health.PeriodicChecker(context.Background(), checker, interval))
 		}
 	}
 
@@ -407,10 +407,10 @@ func (app *App) RegisterHealthChecks(healthRegistries ...*health.Registry) {
 
 		if tcpChecker.Threshold != 0 {
 			dcontext.GetLogger(app).Infof("configuring TCP health check addr=%s, interval=%d, threshold=%d", tcpChecker.Addr, interval/time.Second, tcpChecker.Threshold)
-			healthRegistry.Register(tcpChecker.Addr, health.PeriodicThresholdChecker(checker, interval, tcpChecker.Threshold))
+			healthRegistry.Register(tcpChecker.Addr, health.PeriodicThresholdChecker(context.Background(), checker, interval, tcpChecker.Threshold))
 		} else {
 			dcontext.GetLogger(app).Infof("configuring TCP health check addr=%s, interval=%d", tcpChecker.Addr, interval/time.Second)
-			healthRegistry.Register(tcpChecker.Addr, health.PeriodicChecker(checker, interval))
+			healthRegistry.Register(tcpChecker.Addr, health.PeriodicChecker(context.Background(), checker, interval))
 		}
 	}
 }
