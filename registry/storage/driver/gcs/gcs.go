@@ -388,7 +388,13 @@ type writer struct {
 
 // Cancel removes any written content from this FileWriter.
 func (w *writer) Cancel(ctx context.Context) error {
-	w.closed = true
+	if w.closed {
+		return fmt.Errorf("already closed")
+	} else if w.committed {
+		return fmt.Errorf("already committed")
+	}
+	w.cancelled = true
+
 	err := w.driver.gcs.Bucket(w.driver.bucket).Object(w.key).Delete(ctx)
 	if err != nil {
 		if err == storage.ErrObjectNotExist {
@@ -400,7 +406,7 @@ func (w *writer) Cancel(ctx context.Context) error {
 
 func (w *writer) Close() error {
 	if w.closed {
-		return nil
+		return fmt.Errorf("already closed")
 	}
 	w.closed = true
 
@@ -458,21 +464,20 @@ func putContentsClose(wc *storage.Writer, contents []byte) error {
 // available for future calls to StorageDriver.GetContent and
 // StorageDriver.Reader.
 func (w *writer) Commit(ctx context.Context) error {
-	if err := w.checkClosed(); err != nil {
-		return err
+	if w.closed {
+		return fmt.Errorf("already closed")
 	}
 	w.closed = true
 
 	// no session started yet just perform a simple upload
 	if w.sessionURI == "" {
-		err := retry(func() error {
-			wc := w.driver.gcs.Bucket(w.driver.bucket).Object(w.key).NewWriter(ctx)
-			wc.ContentType = "application/octet-stream"
-			return putContentsClose(wc, w.buffer[0:w.buffSize])
-		})
+		wc := w.driver.gcs.Bucket(w.driver.bucket).Retryer().Object(w.key).NewWriter(ctx)
+		wc.ContentType = "application/octet-stream"
+		err := putContentsClose(wc, w.buffer[0:w.buffSize])
 		if err != nil {
 			return err
 		}
+		w.committed = true
 		w.size = w.offset + int64(w.buffSize)
 		w.buffSize = 0
 		return nil
@@ -482,7 +487,7 @@ func (w *writer) Commit(ctx context.Context) error {
 	// loop must be performed at least once to ensure the file is committed even when
 	// the buffer is empty
 	for {
-		n, err := putChunk(w.driver.client, w.sessionURI, w.buffer[nn:w.buffSize], w.offset, size)
+		n, err := w.putChunk(ctx, w.sessionURI, w.buffer[nn:w.buffSize], w.offset, size)
 		nn += int(n)
 		w.offset += n
 		w.size = w.offset
@@ -494,14 +499,8 @@ func (w *writer) Commit(ctx context.Context) error {
 			break
 		}
 	}
+	w.committed = true
 	w.buffSize = 0
-	return nil
-}
-
-func (w *writer) checkClosed() error {
-	if w.closed {
-		return fmt.Errorf("Writer already closed")
-	}
 	return nil
 }
 
@@ -515,12 +514,12 @@ func (w *writer) writeChunk() error {
 	}
 	// if their is no sessionURI yet, obtain one by starting the session
 	if w.sessionURI == "" {
-		w.sessionURI, err = startSession(w.driver.client, w.driver.bucket, w.key)
+		w.sessionURI, err = w.startSession(w.key)
 	}
 	if err != nil {
 		return err
 	}
-	nn, err := putChunk(w.driver.client, w.sessionURI, w.buffer[0:chunkSize], w.offset, -1)
+	nn, err := w.putChunk(context.Background(), w.sessionURI, w.buffer[0:chunkSize], w.offset, -1)
 	w.offset += nn
 	if w.offset > w.size {
 		w.size = w.offset
@@ -532,14 +531,19 @@ func (w *writer) writeChunk() error {
 }
 
 func (w *writer) Write(p []byte) (int, error) {
-	err := w.checkClosed()
-	if err != nil {
-		return 0, err
+	if w.closed {
+		return 0, fmt.Errorf("already closed")
+	} else if w.cancelled {
+		return 0, fmt.Errorf("already cancelled")
 	}
 
-	var nn int
-	for nn < len(p) {
-		n := copy(w.buffer[w.buffSize:], p[nn:])
+	var (
+		written int
+		err     error
+	)
+
+	for written < len(p) {
+		n := copy(w.buffer[w.buffSize:], p[written:])
 		w.buffSize += n
 		if w.buffSize == cap(w.buffer) {
 			err = w.writeChunk()
@@ -547,10 +551,10 @@ func (w *writer) Write(p []byte) (int, error) {
 				break
 			}
 		}
-		nn += n
+		written += n
 	}
 	w.size = w.offset + int64(w.buffSize)
-	return nn, err
+	return written, err
 }
 
 // Size returns the number of bytes written to this FileWriter.
@@ -836,12 +840,12 @@ func (d *driver) Walk(ctx context.Context, path string, f storagedriver.WalkFn, 
 	return storagedriver.WalkFallback(ctx, d, path, f, options...)
 }
 
-func startSession(client *http.Client, bucket string, name string) (uri string, err error) {
+func (w *writer) startSession(key string) (uri string, err error) {
 	u := &url.URL{
 		Scheme:   "https",
 		Host:     "www.googleapis.com",
-		Path:     fmt.Sprintf("/upload/storage/v1/b/%v/o", bucket),
-		RawQuery: fmt.Sprintf("uploadType=resumable&name=%v", name),
+		Path:     fmt.Sprintf("/upload/storage/v1/b/%v/o", w.driver.bucket),
+		RawQuery: fmt.Sprintf("uploadType=resumable&name=%v", key),
 	}
 	err = retry(func() error {
 		req, err := http.NewRequest(http.MethodPost, u.String(), nil)
@@ -850,7 +854,7 @@ func startSession(client *http.Client, bucket string, name string) (uri string, 
 		}
 		req.Header.Set("X-Upload-Content-Type", "application/octet-stream")
 		req.Header.Set("Content-Length", "0")
-		resp, err := client.Do(req)
+		resp, err := w.driver.client.Do(req)
 		if err != nil {
 			return err
 		}
@@ -865,10 +869,10 @@ func startSession(client *http.Client, bucket string, name string) (uri string, 
 	return uri, err
 }
 
-func putChunk(client *http.Client, sessionURI string, chunk []byte, from int64, totalSize int64) (int64, error) {
+func (w *writer) putChunk(ctx context.Context, sessionURI string, chunk []byte, from int64, totalSize int64) (int64, error) {
 	bytesPut := int64(0)
 	err := retry(func() error {
-		req, err := http.NewRequest(http.MethodPut, sessionURI, bytes.NewReader(chunk))
+		req, err := http.NewRequestWithContext(ctx, http.MethodPut, sessionURI, bytes.NewReader(chunk))
 		if err != nil {
 			return err
 		}
@@ -886,7 +890,7 @@ func putChunk(client *http.Client, sessionURI string, chunk []byte, from int64, 
 		}
 		req.Header.Set("Content-Length", strconv.FormatInt(length, 10))
 
-		resp, err := client.Do(req)
+		resp, err := w.driver.client.Do(req)
 		if err != nil {
 			return err
 		}
