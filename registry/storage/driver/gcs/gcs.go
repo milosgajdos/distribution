@@ -269,12 +269,11 @@ func (d *driver) Name() string {
 // GetContent retrieves the content stored at "path" as a []byte.
 // This should primarily be used for small objects.
 func (d *driver) GetContent(ctx context.Context, path string) ([]byte, error) {
-	name := d.pathToKey(path)
-	r, err := d.gcs.Bucket(d.bucket).Object(name).NewReader(ctx)
-	if err == storage.ErrObjectNotExist {
-		return nil, storagedriver.PathNotFoundError{Path: path}
-	}
+	r, err := d.gcs.Bucket(d.bucket).Object(d.pathToKey(path)).NewReader(ctx)
 	if err != nil {
+		if err == storage.ErrObjectNotExist {
+			return nil, storagedriver.PathNotFoundError{Path: path}
+		}
 		return nil, err
 	}
 	defer r.Close()
@@ -510,18 +509,18 @@ func (w *writer) writeChunk() error {
 	}
 	// if their is no sessionURI yet, obtain one by starting the session
 	if w.sessionURI == "" {
-		w.sessionURI, err = w.startSession(w.key)
+		w.sessionURI, err = w.newSession()
 	}
 	if err != nil {
 		return err
 	}
-	nn, err := w.putChunk(context.Background(), w.sessionURI, w.buffer[0:chunkSize], w.offset, -1)
-	w.offset += nn
+	n, err := w.putChunk(context.Background(), w.sessionURI, w.buffer[0:chunkSize], w.offset, -1)
+	w.offset += n
 	if w.offset > w.size {
 		w.size = w.offset
 	}
 	// shift the remaining bytes to the start of the buffer
-	w.buffSize = copy(w.buffer, w.buffer[int(nn):w.buffSize])
+	w.buffSize = copy(w.buffer, w.buffer[int(n):w.buffSize])
 
 	return err
 }
@@ -824,12 +823,12 @@ func (d *driver) Walk(ctx context.Context, path string, f storagedriver.WalkFn, 
 	return storagedriver.WalkFallback(ctx, d, path, f, options...)
 }
 
-func (w *writer) startSession(key string) (uri string, err error) {
+func (w *writer) newSession() (uri string, err error) {
 	u := &url.URL{
 		Scheme:   "https",
 		Host:     "www.googleapis.com",
 		Path:     fmt.Sprintf("/upload/storage/v1/b/%v/o", w.driver.bucket),
-		RawQuery: fmt.Sprintf("uploadType=resumable&name=%v", key),
+		RawQuery: fmt.Sprintf("uploadType=resumable&name=%v", w.key),
 	}
 	err = retry(func() error {
 		req, err := http.NewRequest(http.MethodPost, u.String(), nil)
