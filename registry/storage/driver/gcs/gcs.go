@@ -300,17 +300,16 @@ func (d *driver) PutContent(ctx context.Context, path string, contents []byte) e
 // with a given byte offset.
 // May be used to resume reading a stream by providing a nonzero offset.
 func (d *driver) Reader(ctx context.Context, path string, offset int64) (io.ReadCloser, error) {
-	res, err := d.getObject(d.pathToKey(path), offset)
+	res, err := d.getObject(ctx, d.pathToKey(path), offset)
 	if err != nil {
 		if res != nil {
+			defer res.Body.Close()
 			if res.StatusCode == http.StatusNotFound {
-				res.Body.Close()
 				return nil, storagedriver.PathNotFoundError{Path: path}
 			}
 
 			if res.StatusCode == http.StatusRequestedRangeNotSatisfiable {
-				res.Body.Close()
-				obj, err := d.storageStatObject(ctx, path)
+				obj, err := d.gcs.Bucket(d.bucket).Retryer().Object(d.pathToKey(path)).Attrs(ctx)
 				if err != nil {
 					return nil, err
 				}
@@ -329,7 +328,7 @@ func (d *driver) Reader(ctx context.Context, path string, offset int64) (io.Read
 	return res.Body, nil
 }
 
-func (d *driver) getObject(path string, offset int64) (*http.Response, error) {
+func (d *driver) getObject(ctx context.Context, path string, offset int64) (*http.Response, error) {
 	// copied from cloud.google.com/go/storage#NewReader :
 	// to set the additional "Range" header
 	u := &url.URL{
@@ -337,7 +336,7 @@ func (d *driver) getObject(path string, offset int64) (*http.Response, error) {
 		Host:   "storage.googleapis.com",
 		Path:   fmt.Sprintf("/%s/%s", d.bucket, path),
 	}
-	req, err := http.NewRequest(http.MethodGet, u.String(), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -560,7 +559,7 @@ func (w *writer) Size() int64 {
 }
 
 func (w *writer) init(key string) error {
-	res, err := w.driver.getObject(key, 0)
+	res, err := w.driver.getObject(context.Background(), key, 0)
 	if err != nil {
 		return err
 	}
@@ -612,7 +611,7 @@ func retry(req request) error {
 func (d *driver) Stat(ctx context.Context, path string) (storagedriver.FileInfo, error) {
 	var fi storagedriver.FileInfoFields
 	// try to get as file
-	obj, err := d.storageStatObject(ctx, path)
+	obj, err := d.gcs.Bucket(d.bucket).Retryer().Object(d.pathToKey(path)).Attrs(ctx)
 	if err == nil {
 		if obj.ContentType == uploadSessionContentType {
 			return nil, storagedriver.PathNotFoundError{Path: path}
@@ -759,17 +758,6 @@ func (d *driver) Delete(ctx context.Context, path string) error {
 		return storagedriver.PathNotFoundError{Path: path}
 	}
 	return err
-}
-
-func (d *driver) storageStatObject(ctx context.Context, name string) (*storage.ObjectAttrs, error) {
-	bkt := d.gcs.Bucket(d.bucket)
-	var obj *storage.ObjectAttrs
-	err := retry(func() error {
-		var err error
-		obj, err = bkt.Object(d.pathToKey(name)).Attrs(ctx)
-		return err
-	})
-	return obj, err
 }
 
 func storageListObjects(ctx context.Context, bucket string, q *storage.Query, gcs *storage.Client) ([]*storage.ObjectAttrs, error) {
