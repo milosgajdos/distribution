@@ -291,9 +291,9 @@ func (d *driver) GetContent(ctx context.Context, path string) ([]byte, error) {
 func (d *driver) PutContent(ctx context.Context, path string, contents []byte) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	wc := d.gcs.Bucket(d.bucket).Object(d.pathToKey(path)).NewWriter(ctx)
-	wc.ContentType = "application/octet-stream"
-	return putContentsClose(wc, contents)
+	w := d.gcs.Bucket(d.bucket).Object(d.pathToKey(path)).NewWriter(ctx)
+	w.ContentType = "application/octet-stream"
+	return putContentsClose(w, contents)
 }
 
 // Reader retrieves an io.ReadCloser for the content stored at "path"
@@ -328,13 +328,13 @@ func (d *driver) Reader(ctx context.Context, path string, offset int64) (io.Read
 	return res.Body, nil
 }
 
-func (d *driver) getObject(ctx context.Context, path string, offset int64) (*http.Response, error) {
+func (d *driver) getObject(ctx context.Context, key string, offset int64) (*http.Response, error) {
 	// copied from cloud.google.com/go/storage#NewReader :
 	// to set the additional "Range" header
 	u := &url.URL{
 		Scheme: "https",
 		Host:   "storage.googleapis.com",
-		Path:   fmt.Sprintf("/%s/%s", d.bucket, path),
+		Path:   fmt.Sprintf("/%s/%s", d.bucket, key),
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
@@ -635,7 +635,7 @@ func (d *driver) Stat(ctx context.Context, path string) (storagedriver.FileInfo,
 		Prefix: dirpath,
 	}
 
-	objects, err := storageListObjects(ctx, d.bucket, query, d.gcs)
+	objects, err := d.listObjects(ctx, query)
 	if err != nil {
 		return nil, err
 	}
@@ -662,7 +662,7 @@ func (d *driver) List(ctx context.Context, path string) ([]string, error) {
 		Prefix:    d.pathToDirKey(path),
 	}
 	list := make([]string, 0, 64)
-	objects, err := storageListObjects(ctx, d.bucket, query, d.gcs)
+	objects, err := d.listObjects(ctx, query)
 	if err != nil {
 		return nil, err
 	}
@@ -706,7 +706,7 @@ func (d *driver) Move(ctx context.Context, sourcePath string, destPath string) e
 	// if deleting the file fails, log the error, but do not fail; the file was successfully copied,
 	// and the original should eventually be cleaned when purging the uploads folder.
 	if err != nil {
-		logrus.Infof("error deleting file: %v due to %v", sourcePath, err)
+		logrus.Infof("error deleting %v: %v", sourcePath, err)
 	}
 	return nil
 }
@@ -714,10 +714,11 @@ func (d *driver) Move(ctx context.Context, sourcePath string, destPath string) e
 // listAll recursively lists all names of objects stored at "prefix" and its subpaths.
 func (d *driver) listAll(ctx context.Context, prefix string) ([]string, error) {
 	list := make([]string, 0, 64)
-	query := &storage.Query{}
-	query.Prefix = prefix
-	query.Versions = false
-	objects, err := storageListObjects(ctx, d.bucket, query, d.gcs)
+	query := &storage.Query{
+		Prefix:   prefix,
+		Versions: false,
+	}
+	objects, err := d.listObjects(ctx, query)
 	if err != nil {
 		return nil, err
 	}
@@ -764,12 +765,12 @@ func (d *driver) Delete(ctx context.Context, path string) error {
 	return err
 }
 
-func storageListObjects(ctx context.Context, bucket string, q *storage.Query, gcs *storage.Client) ([]*storage.ObjectAttrs, error) {
-	bkt := gcs.Bucket(bucket)
+func (d *driver) listObjects(ctx context.Context, q *storage.Query) ([]*storage.ObjectAttrs, error) {
+	objects := d.gcs.Bucket(d.bucket).Objects(ctx, q)
+
 	var objs []*storage.ObjectAttrs
-	it := bkt.Objects(ctx, q)
 	for {
-		objAttrs, err := it.Next()
+		objAttrs, err := objects.Next()
 		if err == iterator.Done {
 			break
 		}
