@@ -1343,6 +1343,11 @@ func (b *buffer) Clear() {
 	b.data = b.data[:0]
 }
 
+// Available returns how many bytes are unused in the buffer.
+func (b *buffer) Available() int {
+	return cap(b.data) - len(b.data)
+}
+
 // writer attempts to upload parts to S3 in a buffered fashion where the last
 // part is at least as large as the chunksize, so the multipart upload could be
 // cleanly resumed in the future. This is violated if Close is called after less
@@ -1354,8 +1359,7 @@ type writer struct {
 	uploadID  string
 	parts     []*s3.Part
 	size      int64
-	ready     *buffer
-	pending   *buffer
+	buf       *buffer
 	closed    bool
 	committed bool
 	cancelled bool
@@ -1373,8 +1377,7 @@ func (d *driver) newWriter(ctx context.Context, key, uploadID string, parts []*s
 		uploadID: uploadID,
 		parts:    parts,
 		size:     size,
-		ready:    d.NewBuffer(),
-		pending:  d.NewBuffer(),
+		buf:      d.NewBuffer(),
 	}
 }
 
@@ -1452,9 +1455,9 @@ func (w *writer) Write(p []byte) (int, error) {
 
 			// reset uploaded parts
 			w.parts = nil
-			w.ready.Clear()
+			w.buf.Clear()
 
-			n, err := w.ready.ReadFrom(resp.Body)
+			n, err := w.buf.ReadFrom(resp.Body)
 			if err != nil {
 				return 0, err
 			}
@@ -1484,41 +1487,20 @@ func (w *writer) Write(p []byte) (int, error) {
 	}
 
 	var n int
-
 	defer func() { w.size += int64(n) }()
-
 	reader := bytes.NewReader(p)
-
 	for reader.Len() > 0 {
-		// NOTE(milosgajdos): we do some seemingly unsafe conversions
-		// from int64 to int in this for loop. These are fine as the
-		// offset returned from buffer.ReadFrom can only ever be
-		// maxChunkSize large which fits in to int. The reason why
-		// we return int64 is to play nice with Go interfaces where
-		// the buffer implements io.ReaderFrom interface.
-
-		// fill up the ready parts buffer
-		offset, err := w.ready.ReadFrom(reader)
-		n += int(offset)
+		m, err := w.buf.ReadFrom(reader)
+		n += int(m)
 		if err != nil {
 			return n, err
 		}
-
-		// try filling up the pending parts buffer
-		offset, err = w.pending.ReadFrom(reader)
-		n += int(offset)
-		if err != nil {
-			return n, err
-		}
-
-		// we filled up pending buffer, flush
-		if w.pending.Len() == w.pending.Cap() {
+		if w.buf.Available() == 0 {
 			if err := w.flush(); err != nil {
 				return n, err
 			}
 		}
 	}
-
 	return n, nil
 }
 
@@ -1532,10 +1514,8 @@ func (w *writer) Close() error {
 	w.closed = true
 
 	defer func() {
-		w.ready.Clear()
-		w.driver.pool.Put(w.ready)
-		w.pending.Clear()
-		w.driver.pool.Put(w.pending)
+		w.buf.Clear()
+		w.driver.pool.Put(w.buf)
 	}()
 
 	return w.flush()
@@ -1631,16 +1611,15 @@ func (w *writer) Commit(ctx context.Context) error {
 // flush flushes all buffers to write a part to S3.
 // flush is only called by Write (with both buffers full) and Close/Commit (always)
 func (w *writer) flush() error {
-	if w.ready.Len() == 0 && w.pending.Len() == 0 {
+	if w.buf.Len() == 0 {
 		return nil
 	}
 
-	buf := bytes.NewBuffer(w.ready.data)
-	if w.driver.MultipartCombineSmallPart && (w.pending.Len() > 0 && w.pending.Len() < int(w.driver.ChunkSize)) {
-		if _, err := buf.Write(w.pending.data); err != nil {
+	buf := bytes.NewBuffer(w.buf.data)
+	if w.driver.MultipartCombineSmallPart && (w.buf.Len() > 0 && w.buf.Len() < int(w.driver.ChunkSize)) {
+		if _, err := buf.Write(w.buf.data); err != nil {
 			return err
 		}
-		w.pending.Clear()
 	}
 
 	partSize := buf.Len()
@@ -1664,8 +1643,7 @@ func (w *writer) flush() error {
 	})
 
 	// reset the flushed buffer and swap buffers
-	w.ready.Clear()
-	w.ready, w.pending = w.pending, w.ready
+	w.buf.Clear()
 
 	return nil
 }
